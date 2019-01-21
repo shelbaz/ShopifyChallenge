@@ -1,11 +1,11 @@
 # import graphene
 # from graphene import relay
 # from graphene_sqlalchemy import SQLAlchemyConnectionField, SQLAlchemyObjectType, utils
-# from models import Product as ProductModel
-# from models import ShoppingCart as ShoppingCartModel
-# from models import CartItem as CartItemModel
-# from models import Order as OrderModel
-# from models import User as UserModel
+# from app import Product as ProductModel
+# from app import ShoppingCart as ShoppingCartModel
+# from app import CartItem as CartItemModel
+# from app import Order as OrderModel
+# from app import User as UserModel
 # from app import session as db_session
 #
 #

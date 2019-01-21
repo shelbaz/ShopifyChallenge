@@ -1,11 +1,9 @@
 from flask import Flask, request, json, jsonify, render_template
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.ext.declarative import DeclarativeMeta
-import contextlib
-from sqlalchemy import MetaData
 
-from flask_graphql import GraphQLView
+from sqlalchemy import MetaData
 # from schema import schema
+from flask_graphql import GraphQLView
 
 app = Flask(__name__)
 
@@ -51,6 +49,7 @@ class User(db.Model):
     shopping_cart_id = db.Column(db.Integer, db.ForeignKey('shopping_cart.id'))
     shopping_cart = db.relationship(ShoppingCart, cascade="delete, delete-orphan", single_parent=True)
 
+## GRAPHQL IMPLEMENTATION
 
 # app.add_url_rule('/graphql', view_func=GraphQLView.as_view('graphql', schema=schema, graphiql=True))
 
@@ -118,7 +117,7 @@ def get_instock_products():
        GET request for all products whose quantity is greater than 0
        :returns: JSON of products
        - Example
-       .. code-block:: JSON
+       .. code-block returned:: JSON
         {
             "data": [
                 {
@@ -266,11 +265,14 @@ def add_to_cart(userid):
     for product in product_array:
         print(product, flush=True)
         item = get_product(product['id'])
-        cart_item = CartItem(name=item.title, quantity=item.quantity, price=item.price, product_id=item.id, shopping_cart_id=user.shopping_cart_id)
-        total_price += item.price
-        cart_array.append(cart_item.id)
-        session.add(cart_item)
-        session.commit()
+        if(item.quantity > 0): ## Precondition: Must be in stock
+            cart_item = CartItem(name=item.title, quantity=item.quantity, price=item.price, product_id=item.id, shopping_cart_id=user.shopping_cart_id)
+            total_price += item.price
+            cart_array.append(cart_item.id)
+            session.add(cart_item)
+            session.commit()
+        else:
+            print('Item not in stock', flush=True)
 
     shopping_cart = get_cart(user.shopping_cart_id)
     setattr(shopping_cart, 'user_id', user.id)
@@ -278,10 +280,66 @@ def add_to_cart(userid):
     session.commit()
     return jsonify({'status': 'Products added to cart of user: ' + str(userid)})
 
+@app.route('/cart/remove/<userid>', methods=['POST', 'GET'])
+def remove_from_cart(userid):
+    """
+    Remove items from cart, passing the item id as JSON.
+    :param str userid: ID of the user
+    :returns: Status of cart
+    - Example
+    .. code-block:: JSON
+        {
+            "products": [
+                {
+                    "id": 1
+                },
+                {
+                    "id": 2
+                },
+                {
+                    "id": 3
+                }
+                        ]
+        }
+    """
+    json_obj = request.get_json()
+    product_array = json_obj['products']
+
+    print(product_array, flush=True)
+    user = get_user(userid)
+    print(user)
+
+    for product in product_array:
+        CartItem.query.filter_by(product_id=product['id'], shopping_cart_id=user.shopping_cart_id).delete()
+
+    session.commit()
+    return jsonify({'status': 'Products removed from cart of user: ' + str(userid)})
+
+
+@app.route('/cart/checkout/<userid>', methods=['GET'])
+def checkout_cart(userid):
+    user = get_user(userid)
+    user_cart_id = user.shopping_cart_id
+
+    bought_products = get_cart_items(user_cart_id)
+    total = 0
+    for product in bought_products:
+        total += product.price
+        cart_item = CartItem.query.filter_by(product_id=product.id, shopping_cart_id=user.shopping_cart_id)
+        cart_item.delete()
+        change_product = Product.query.filter_by(product_id=product.id).first()
+        change_product.quantity -= product.quantity ## Reduce stock
+        session.commit()
+
+    new_order = Order(total_price=total, user_id=userid)
+    session.add(new_order)
+    session.commit()
+    return jsonify({'status': 'User has checked out and created an order#' + str(new_order.id) + ' with total ' + str(total) })
+
 
 def get_user(userid):
     """
-       Gets the user object assocated with the userid.
+       Gets the user object associated with the userid.
        :param str userid: ID of the user
        :returns: User Object
 
@@ -291,7 +349,7 @@ def get_user(userid):
 
 def get_product(productid):
     """
-       Gets the product object assocated with the productid.
+       Gets the product object associated with the productid.
        :param str productid: ID of the product
        :returns: Product Object
 
@@ -301,7 +359,7 @@ def get_product(productid):
 
 def get_cart(cartid):
     """
-       Gets the cart object assocated with the cartid.
+       Gets the cart object associated with the cartid.
        :param str cartid: ID of the cartid
        :returns: Cart Object
 
@@ -309,9 +367,19 @@ def get_cart(cartid):
     cart = ShoppingCart.query.filter_by(id=cartid).first()
     return cart
 
+def get_cart_items(cartid):
+    """
+       Gets the cart items objects associated with the cartid.
+       :param str cartid: ID of the cartid
+       :returns: Cart Objects
+
+    """
+    cart_items = CartItem.query.filter_by(shopping_cart_id=cartid)
+    return cart_items
+
 def get_order(orderid):
     """
-       Gets the order object assocated with the orderid.
+       Gets the order object associated with the orderid.
        :param str orderid: ID of the order
        :returns: Order Object
 
